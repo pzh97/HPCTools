@@ -1,17 +1,21 @@
-# Default Lapacke: Openblas at CESGA
-LDLIBS=-lopenblas
+#My device is a Macbook Air
+CC = gcc
 
-# Other systems (my Debian boxes, for example)
-#LDLIBS=-llapacke
+OPENBLAS_PATH = /opt/homebrew/Cellar/openblas/0.3.30
+LIBOMP_PATH = /opt/homebrew/opt/libomp
 
-# Intel MKL at CESGA
-# Module needed: imkl
-# => module load openblas
-# LDLIBS for intel compiler: icx (module needed: intel)
-# Just invoke make like this: make CC=icx
-#LDLIBS=-qmkl=sequential -lmkl_intel_lp64
+CPPFLAGS = -I$(OPENBLAS_PATH)/include -I$(LIBOMP_PATH)/include
+LDFLAGS  = -L$(LIBOMP_PATH)/lib
+LDLIBS   = $(OPENBLAS_PATH)/lib/libopenblas.a -lomp
 
-dgesv: dgesv.o timer.o main.o
+OBJ = dgesv.o timer.o main.o
+TARGET = dgesv
+
+$(TARGET): $(OBJ)
+	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+
+%.o: %.c
+	$(CC) $(CPPFLAGS) -c $< -o $@
 
 clean:
-	$(RM) dgesv *.o *~
+	rm -f $(TARGET) $(OBJ)
