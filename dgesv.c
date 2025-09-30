@@ -1,17 +1,13 @@
 #include "dgesv.h"
-#include <stdlib.h>
-#include <string.h>
 #include <math.h>
-
-#define check_fabs(a) (((a) < 0) ? -(a) : (a))
 
 int my_dgesv(int n, int nrhs, double *a, double *b)
 {
   for (int i = 0; i < n; i++) {
     int max_row = i;
-    double max_val = check_fabs(a[i * n + i]);
+    double max_val = fabs(a[i * n + i]);
     for (int k = i + 1; k < n; k++) {
-      double val = check_fabs(a[k * n + i]);
+      double val = fabs(a[k * n + i]);
       if (val > max_val) {
         max_val = val;
         max_row = k;
