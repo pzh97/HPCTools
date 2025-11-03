@@ -1,0 +1,12 @@
+dgesv.c:38:7: optimized: loop vectorized using 64 byte vectors
+dgesv.c:38:7: optimized:  loop versioned for vectorization because of possible aliasing
+dgesv.c:38:7: optimized: loop vectorized using 32 byte vectors
+dgesv.c:34:7: optimized: loop vectorized using 64 byte vectors
+dgesv.c:34:7: optimized:  loop versioned for vectorization because of possible aliasing
+dgesv.c:34:7: optimized: loop vectorized using 32 byte vectors
+dgesv.c:23:7: optimized: loop vectorized using 64 byte vectors
+dgesv.c:23:7: optimized:  loop versioned for vectorization because of possible aliasing
+dgesv.c:23:7: optimized: loop vectorized using 32 byte vectors
+dgesv.c:18:7: optimized: loop vectorized using 64 byte vectors
+dgesv.c:18:7: optimized:  loop versioned for vectorization because of possible aliasing
+dgesv.c:18:7: optimized: loop vectorized using 32 byte vectors
