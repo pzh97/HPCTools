@@ -12,50 +12,105 @@ module load cesga/2025
 module load gcc/11.4.0
 module load openblas
 
+CC=gcc
+COMPILER_TAG="GCC11.4.0"
+JOB_TAG="${SLURM_JOB_ID:-$$}"
+
+# Optimization flags
 OPT_FLAGS=("O0" "O2-novec" "O3-vec" "Ofast-vec")
 SIZES=(1024 2048 4096)
 REPEATS=3
 
 RESULTS="dgesv_results_gcc11.csv"
-echo "compiler,flag,size,run,my_dgesv_ms,ref_dgesv_ms" > $RESULTS
+RAW_RESULTS="dgesv_results_gcc11_raw.csv"
+echo "compiler,flag,size,my_dgesv_median_ms,ref_dgesv_median_ms" > "$RESULTS"
+echo "compiler,flag,size,run,my_dgesv_ms,ref_dgesv_ms" > "$RAW_RESULTS"
 
 echo "=== Running DGESV Benchmarks (GCC 11.4.0) ==="
 gcc --version | head -n 1
 echo ""
 
+median_of_three() {
+    printf "%s\n" "$1" "$2" "$3" | sort -n | awk 'NR==2{print $1}'
+}
+
 for flag in "${OPT_FLAGS[@]}"; do
     echo "---- Building with $flag ----"
 
-    make clean >/dev/null 2>&1
+    bin="dgesv_bench_gcc11_${flag}_${JOB_TAG}"
 
+    # Build a dedicated binary for each optimization level
     case $flag in
         "O0")
-            make CFLAGS="-O0" >/dev/null 2>&1
+            "$CC" -O0 dgesv.c timer.c main.c -o "$bin" -lopenblas -lm
             ;;
         "O2-novec")
-            make CFLAGS="-O2 -fno-tree-vectorize" >/dev/null 2>&1
+            "$CC" -O2 -fno-tree-vectorize dgesv.c timer.c main.c -o "$bin" -lopenblas -lm
             ;;
         "O3-vec")
-            make CFLAGS="-O3 -march=native" >/dev/null 2>&1
+            "$CC" -O3 -march=native -ftree-vectorize \
+                -fopt-info-vec-optimized="vec_gcc11_O3.txt" \
+                -fopt-info-vec-missed="missed_gcc11_O3.txt" \
+                dgesv.c timer.c main.c -o "$bin" -lopenblas -lm
             ;;
         "Ofast-vec")
-            make CFLAGS="-Ofast -march=native" >/dev/null 2>&1
+            "$CC" -Ofast -march=native -ftree-vectorize \
+                -fopt-info-vec-optimized="vec_gcc11_Ofast.txt" \
+                -fopt-info-vec-missed="missed_gcc11_Ofast.txt" \
+                dgesv.c timer.c main.c -o "$bin" -lopenblas -lm
             ;;
     esac
 
+    if [[ ! -x "$bin" ]]; then
+        echo "Build failed for $flag"
+        exit 1
+    fi
+
     for size in "${SIZES[@]}"; do
         echo "Running size=$size ($flag)"
+        my_t1=0
+        my_t2=0
+        my_t3=0
+        ref_t1=0
+        ref_t2=0
+        ref_t3=0
+
         for run in $(seq 1 $REPEATS); do
-            output=$(./dgesv $size)
+            # Run the program and capture all output
+            output=$(./"$bin" "$size")
             echo "$output"
+
+            # Extract my_dgesv solver time
             my_time=$(echo "$output" | awk '/Time taken by my dgesv solver/ {print $(NF-1)}')
             if [ -z "$my_time" ]; then my_time=0; fi
+
+            # Extract LAPACKE (Ref) solver time
             ref_time=$(echo "$output" | awk '/Time taken by Lapacke dgesv/ {print $(NF-1)}')
             if [ -z "$ref_time" ]; then ref_time=0; fi
-            echo "GCC11.4.0,$flag,$size,$run,$my_time,$ref_time" >> $RESULTS
+
+            # Append run-level data
+            echo "$COMPILER_TAG,$flag,$size,$run,$my_time,$ref_time" >> "$RAW_RESULTS"
+
+            if [[ "$run" == "1" ]]; then
+                my_t1=$my_time
+                ref_t1=$ref_time
+            elif [[ "$run" == "2" ]]; then
+                my_t2=$my_time
+                ref_t2=$ref_time
+            else
+                my_t3=$my_time
+                ref_t3=$ref_time
+            fi
         done
+
+        my_median=$(median_of_three "$my_t1" "$my_t2" "$my_t3")
+        ref_median=$(median_of_three "$ref_t1" "$ref_t2" "$ref_t3")
+        echo "$COMPILER_TAG,$flag,$size,$my_median,$ref_median" >> "$RESULTS"
     done
 done
 
+rm -f dgesv_bench_gcc11_*_"$JOB_TAG"
+
 echo ""
-echo "All runs complete. Raw data saved to $RESULTS"
+echo "All runs complete. Median data saved to $RESULTS"
+echo "Run-level data saved to $RAW_RESULTS"

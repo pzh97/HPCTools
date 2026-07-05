@@ -10,7 +10,7 @@ CFLAGS = -O3 -fopenmp -ftree-vectorize -march=native -funroll-loops
 VECFLAGS = -fopt-info-vec-optimized=vec.txt -fopt-info-vec-missed=missed.txt -fverbose-asm -ftree-vectorize -O3 -march=native
 
 # Libraries
-LDLIBS = -lopenblas
+LDLIBS = -lopenblas -lm
 
 # Source files
 SRC = dgesv.c timer.c main.c

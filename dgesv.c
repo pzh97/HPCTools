@@ -1,6 +1,5 @@
 #include "dgesv.h"
 #include <math.h>
-
 int my_dgesv(int n, int nrhs, double *a, double *b)
 {
   for (int i = 0; i < n; i++) {
@@ -26,12 +25,12 @@ int my_dgesv(int n, int nrhs, double *a, double *b)
         b[i * nrhs + rhs] = b[max_row * nrhs + rhs];
         b[max_row * nrhs + rhs] = temp;
       }
+      
     }
 
     for (int k = i + 1; k < n; k++) {
       double factor = a[k * n + i] / a[i * n + i];
-      a[k * n + i] = 0.0; 
-
+      a[k * n + i] = 0.0;
       for (int j = i + 1; j < n; j++) {
         a[k * n + j] -= factor * a[i * n + j];
       }
