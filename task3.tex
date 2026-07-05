@@ -1,0 +1,506 @@
+\documentclass[11pt,a4paper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{array}
+\usepackage{booktabs}
+\usepackage{hyperref}
+
+\title{HPC Tools Task 3: DGESV Profiling and Optimization}
+\author{}
+\date{July 2026}
+
+\begin{document}
+
+\maketitle
+
+\section{Objective and Environment}
+
+The goal of Task 3 was to benchmark and analyze the custom \texttt{dgesv}
+implementation with Intel compilers, compare the results against the GCC
+campaign from Task 2, profile the code, and identify optimizations that have
+measurable impact.
+
+The solver under study is the baseline Gaussian elimination with partial
+pivoting plus back substitution implemented in \texttt{dgesv.c}. The reference
+solver is LAPACKE \texttt{dgesv}; for the Intel campaign it is linked against
+Intel MKL.
+
+FT3 environment used for the Intel campaign:
+
+\begin{itemize}
+\item \texttt{intel/2021.3.0}
+\item \texttt{imkl/2021.3.0}
+\item \texttt{icc 2021.3.0}
+\item \texttt{icx 2021.3.0}
+\end{itemize}
+
+The assignment requested \texttt{icx 2024.2.1}, but that version was not
+visible in the \texttt{cesga/2025} module tree on 2026-07-05. We therefore ran
+the experiments with the newest Intel toolchain that was actually available on
+FT3 and documented that limitation explicitly.
+
+\section{Methodology}
+
+We followed the same general methodology as in Task 2:
+
+\begin{itemize}
+\item matrix sizes: \texttt{1024}, \texttt{2048}, \texttt{4096}
+\item three runs per configuration
+\item median execution time reported in the summary CSV
+\item run-level data stored in a separate raw CSV
+\end{itemize}
+
+New Task 3 infrastructure:
+
+\begin{itemize}
+\item \texttt{run\_dgesv\_bench\_icc\_2021\_3\_0.sh}
+\item \texttt{run\_dgesv\_bench\_icx.sh}
+\item \texttt{profile\_dgesv\_intel.sh}
+\end{itemize}
+
+The Intel benchmark scripts also emit compiler vectorization reports.
+
+For profiling and analysis we used:
+
+\begin{itemize}
+\item \texttt{perf stat -d}
+\item \texttt{valgrind --leak-check=full}
+\item \texttt{valgrind --tool=cachegrind}
+\end{itemize}
+
+VTune and Advisor modules are available on FT3, and the helper script supports
+them, but the main conclusions below were already clear from \texttt{perf} and
+Valgrind.
+
+\section{Intel Benchmark Tables}
+
+\subsection{ICC 2021.3.0}
+
+\texttt{fast} deserves one important note. The literal \texttt{icc -fast}
+driver path built a binary that crashed at runtime on FT3 with
+\texttt{*** stack smashing detected ***}, even after fixing the MKL link path.
+To keep the required \texttt{fast} table entry meaningful, we used the
+fast-equivalent bundle:
+
+\begin{center}
+\texttt{-O3 -xHost -no-prec-div -fp-model fast=2 -ansi-alias}
+\end{center}
+
+The table label remains \texttt{fast}, but the report must mention this
+FT3-specific compiler-driver defect.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Matrix size & O2 & O3 & fast & Ref \\
+\midrule
+1024x1024 & 2145 & 1868 & 2027 & 118 \\
+2048x2048 & 22533 & 22331 & 16745 & 418 \\
+4096x4096 & 356421 & 368530 & 194918 & 2774 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{ICX 2021.3.0}
+
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrrrr}
+\toprule
+Matrix size & O2 & O3 & Ofast & Ofast+ipo & Ref \\
+\midrule
+1024x1024 & 1916 & 1969 & 1915 & 2388 & 90 \\
+2048x2048 & 22658 & 22082 & 21012 & 28892 & 481 \\
+4096x4096 & 356030 & 369784 & 352261 & 452793 & 3113 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Combined View with Task 2}
+
+The best GCC medians from Task 2 were:
+
+\begin{itemize}
+\item 1024: \texttt{2052 ms} with \texttt{GCC 8.4.0 Ofast-vec}
+\item 2048: \texttt{22742 ms} with \texttt{GCC 8.4.0 Ofast-vec}
+\item 4096: \texttt{400211 ms} with \texttt{GCC 8.4.0 Ofast-vec}
+\end{itemize}
+
+The best overall medians after combining Tasks 2 and 3 are:
+
+\begin{table}[h]
+\centering
+\begin{tabular}{l l rr}
+\toprule
+Matrix size & Best overall configuration & Our solver (ms) & Reference (ms) \\
+\midrule
+1024x1024 & ICC 2021.3.0 O3 & 1868 & 88 \\
+2048x2048 & ICC 2021.3.0 fast-equivalent & 16745 & 418 \\
+4096x4096 & ICC 2021.3.0 fast-equivalent & 194918 & 2774 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Relative to the best GCC result from Task 2, the Intel campaign improved the
+custom solver by:
+
+\begin{itemize}
+\item $1.10\times$ at 1024 ($2052 / 1868$)
+\item $1.36\times$ at 2048 ($22742 / 16745$)
+\item $2.05\times$ at 4096 ($400211 / 194918$)
+\end{itemize}
+
+This means the Intel toolchain advantage becomes much larger as the problem
+size grows.
+
+\section{Performance Analysis}
+
+\subsection{Main Findings}
+
+The most important result is that the Intel compilers, especially ICC with the
+fast-equivalent optimization bundle, outperform all GCC configurations from
+Task 2 for the large matrices.
+
+The clearest case is 4096x4096:
+
+\begin{itemize}
+\item best GCC result: \texttt{400211 ms}
+\item best ICC result: \texttt{194918 ms}
+\end{itemize}
+
+That is a $2.05\times$ speedup without changing the algorithm, only the
+compiler configuration and runtime library stack.
+
+\subsection{Why the Intel Results Improve}
+
+The main causes are:
+
+\begin{itemize}
+\item better autovectorization of the row-swap and elimination loops
+\item more aggressive alias assumptions in the fast-equivalent ICC configuration
+\item stronger MKL reference performance than the OpenBLAS-based reference from Task 2
+\end{itemize}
+
+The reference solver also benefits from the Intel stack. For example, at 4096
+the best GCC reference median was \texttt{4694 ms} while ICC fast achieved
+\texttt{2774 ms}, roughly $1.69\times$ faster.
+
+\subsection{Most Unexpected Results}
+
+Two results stood out as unexpected.
+
+First, ICC fast was not the best configuration at 1024. ICC O3 achieved
+\texttt{1868 ms}, while the fast-equivalent path took \texttt{2027 ms}. For
+small matrices, the extra aggressiveness of the fast-equivalent flags does not
+compensate for setup overhead and reduced cost-model selectivity.
+
+Second, ICX Ofast+ipo was consistently worse than plain Ofast:
+
+\begin{itemize}
+\item \texttt{2388 ms} vs \texttt{1915 ms} at 1024
+\item \texttt{28892 ms} vs \texttt{21012 ms} at 2048
+\item \texttt{452793 ms} vs \texttt{352261 ms} at 4096
+\end{itemize}
+
+This suggests that IPO increased code size or hurt locality enough that the
+extra whole-program optimization was not beneficial for this solver.
+
+\subsection{Quantified Optimization Impact}
+
+Within the Intel campaign, the best implemented optimization was the ICC
+fast-equivalent flag bundle.
+
+Compared with ICC O2, it improved the solver by:
+
+\begin{itemize}
+\item $1.06\times$ at 1024
+\item $1.35\times$ at 2048
+\item $1.83\times$ at 4096
+\end{itemize}
+
+Compared with ICC O3, it improved the solver by:
+
+\begin{itemize}
+\item $0.92\times$ at 1024, so slightly worse
+\item $1.33\times$ at 2048
+\item $1.89\times$ at 4096
+\end{itemize}
+
+The optimization is therefore clearly beneficial for medium and large problems,
+which are the more relevant HPC cases.
+
+\section{Vectorization Analysis}
+
+\subsection{Are the Key Parts Autovectorized?}
+
+Yes. The key numeric loops in \texttt{dgesv.c} are autovectorized by both Intel
+compilers.
+
+From the ICX Ofast report:
+
+\begin{itemize}
+\item row swap loop over \texttt{a} is vectorized
+\item row swap loop over \texttt{b} is vectorized
+\item elimination update over \texttt{a} is vectorized
+\item elimination update over \texttt{b} is vectorized
+\end{itemize}
+
+From the Intel optimization report already present in the repository
+(\texttt{ipo\_out.optrpt}), ICC also vectorizes:
+
+\begin{itemize}
+\item pivot search inner loop at \texttt{dgesv.c(8,5)}
+\item row swap loops at \texttt{dgesv.c(17,7)} and \texttt{dgesv.c(23,7)}
+\item elimination loops at \texttt{dgesv.c(34,7)} and \texttt{dgesv.c(38,7)}
+\item one back-substitution inner loop at \texttt{dgesv.c(47,7)}
+\end{itemize}
+
+The ICC report even estimates a potential speedup of about $4.22\times$ for
+the elimination update loops after vectorization.
+
+\subsection{What Is Not Vectorized, and Why?}
+
+Some loops still resist vectorization:
+
+\begin{itemize}
+\item \texttt{generate\_matrix()} is not vectorized because it calls \texttt{rand()}
+\item \texttt{check\_result()} is not vectorized in the ICC fast report because it uses an unsigned induction variable and has early exit behavior
+\item the outer pivot-search loop is not vectorized by ICX because the reduction and selected row index escape the loop
+\item parts of back substitution remain limited by loop-carried dependences and by strided access to \texttt{b[j*nrhs + rhs]}
+\end{itemize}
+
+This behavior is consistent with the algorithm. The row-wise loops are friendly
+to SIMD, but the dependency structure in pivoting and back substitution is
+inherently harder.
+
+\subsection{Can Source Changes Help?}
+
+Yes, but the benefit is limited because the baseline already vectorizes the
+main row-based loops under Intel compilers.
+
+Possible source-level improvements are:
+
+\begin{itemize}
+\item replace unsigned loop counters in non-critical helper loops with signed integers
+\item separate pivot search from row index updates more clearly to help ICX identify the reduction
+\item use \texttt{restrict}-based helper routines similar to the separate autovectorization experiment from Task 2
+\item improve alignment guarantees for matrix allocations
+\end{itemize}
+
+However, for the Task 3 baseline, compiler-flag tuning delivered larger gains
+than additional source refactoring.
+
+\section{Memory and Cache Behaviour}
+
+\subsection{Heap Usage}
+
+The first Valgrind pass showed that \texttt{main.c} leaked the five main
+allocations:
+
+\begin{itemize}
+\item \texttt{a}
+\item \texttt{b}
+\item \texttt{aref}
+\item \texttt{bref}
+\item \texttt{ipiv}
+\end{itemize}
+
+We fixed that by freeing all owned buffers before returning from \texttt{main()}.
+
+After the fix, Valgrind reports:
+
+\begin{itemize}
+\item definitely lost: 0 bytes
+\item indirectly lost: 0 bytes
+\item possibly lost: 0 bytes
+\end{itemize}
+
+There are still some reachable blocks inside MKL and loader internals, but the
+program's own allocations are no longer leaked.
+
+\subsection{Access Pattern}
+
+The solver uses row-major matrices. That creates two very different memory
+behaviors.
+
+Good spatial locality appears in:
+
+\begin{itemize}
+\item row swaps over \texttt{a[i*n + j]}
+\item row swaps over \texttt{b[i*nrhs + rhs]}
+\item elimination updates over \texttt{a[k*n + j]}
+\item elimination updates over \texttt{b[k*nrhs + rhs]}
+\end{itemize}
+
+These loops walk contiguous row segments and are exactly the loops that the
+compilers vectorize most effectively.
+
+Poorer locality appears in:
+
+\begin{itemize}
+\item pivot search, which reads \texttt{a[k*n + i]} and therefore traverses a column in row-major storage
+\item back substitution, which accesses \texttt{b[j*nrhs + rhs]} and is also strided in the inner loop
+\end{itemize}
+
+These accesses have weaker spatial locality, create more cache pressure, and
+are harder to vectorize efficiently.
+
+\subsection{Cache Observations}
+
+The profiling results support the idea that the solver becomes memory-sensitive
+as the matrices grow.
+
+\texttt{perf stat -d} on ICX Ofast at size 512 showed:
+
+\begin{itemize}
+\item IPC around 1.15
+\item L1 data-cache miss rate around 33.5\%
+\item LLC-load miss rate around 99.17\% of LLC loads
+\end{itemize}
+
+This is consistent with a kernel that streams large working sets and frequently
+fetches data from deeper cache levels.
+
+\texttt{cachegrind} on the optimized ICC fast-equivalent path at size 256 showed:
+
+\begin{itemize}
+\item D1 miss rate around 5.4\%
+\item LL miss rate around 1.1\%
+\end{itemize}
+
+Those smaller-size results are qualitatively useful even if Valgrind is not
+appropriate for absolute timing. They show that cache behavior is still
+reasonable for smaller matrices, while the hardware \texttt{perf} counters
+indicate much heavier pressure once the matrix grows.
+
+\section{Profiling Summary}
+
+The profiling tools used in practice were:
+
+\begin{itemize}
+\item \texttt{perf stat -d}
+\item \texttt{valgrind --leak-check=full}
+\item \texttt{valgrind --tool=cachegrind}
+\end{itemize}
+
+Main conclusions from profiling:
+
+\begin{itemize}
+\item the solver is not branch-miss dominated; branch-miss rates stayed low in the \texttt{perf} runs
+\item the key bottleneck is memory traffic in the large row-update phases and the strided accesses in pivot search and back substitution
+\item the custom solver allocates the correct matrix sizes, and after the memory fix it no longer leaks its own heap allocations
+\end{itemize}
+
+\section{Implemented Optimizations}
+
+The main implemented optimizations in Task 3 were:
+
+\begin{enumerate}
+\item Intel benchmark infrastructure.
+
+We added dedicated scripts for ICC and ICX, with median-of-three reporting and
+vectorization-report emission.
+
+\item ICC fast workaround.
+
+Because the literal \texttt{icc -fast} path crashed at runtime on FT3, we
+replaced it with the fast-equivalent flag bundle:
+
+\begin{center}
+\texttt{-O3 -xHost -no-prec-div -fp-model fast=2 -ansi-alias}
+\end{center}
+
+This preserved the intended aggressive optimization behavior while producing
+stable binaries and the best large-matrix results.
+
+\item Memory-management fix.
+
+We added missing \texttt{free()} calls in \texttt{main.c}, eliminating the
+definite leaks reported by Valgrind.
+
+\item Reusable profiling helper.
+
+We added \texttt{profile\_dgesv\_intel.sh} so that \texttt{perf},
+\texttt{cachegrind}, \texttt{massif}, \texttt{advisor}, and \texttt{vtune}
+can be run consistently on the Intel binaries.
+
+\item Separate optimized experiment.
+
+We created a separate experimental solver in \texttt{dgesv\_intel\_opt.c} so
+that the baseline and the earlier helper-based variant remain untouched. This
+version combines three ideas:
+
+\begin{itemize}
+\item \texttt{restrict}-qualified row pointers
+\item manually unrolled contiguous row helpers for swaps, updates, and scaling
+\item a rewritten back-substitution phase that operates on complete RHS rows instead of strided scalar updates
+\end{itemize}
+
+The complete single-run comparison under the same ICC fast-equivalent flags
+used in the main Task 3 campaign is shown in Table~\ref{tab:separate-opt}.
+
+\begin{table}[h]
+\centering
+\begin{tabular}{rrrr}
+\hline
+Size & Older helper-based variant (ms) & \texttt{dgesv\_intel\_opt.c} (ms) & Speedup \\
+\hline
+512 & 176 & 81 & 2.17x \\
+1024 & 1731 & 641 & 2.70x \\
+2048 & 16234 & 6663 & 2.44x \\
+4096 & 194615 & 62337 & 3.12x \\
+\hline
+\end{tabular}
+\caption{Separate optimized experiment under ICC 2021.3.0 fast-equivalent flags.}
+\label{tab:separate-opt}
+\end{table}
+
+The dedicated artifact for this comparison is stored in
+\texttt{dgesv\_results\_icc\_separate\_opt.csv}.
+
+These results strengthen the earlier conclusion: back substitution was a larger
+bottleneck than the row-update kernels alone, and reorganizing the solve to
+operate on contiguous RHS rows is substantially more effective than only adding
+helper-based swap and update routines. The benefit also scales well with
+problem size, exceeding 3x at 4096.
+\end{enumerate}
+
+\section{Final Conclusion}
+
+The Task 3 results show that compiler and runtime choice matter a lot for this
+solver. The Intel toolchain produced the best results of the whole assignment
+campaign, especially for the larger matrices where the gap over GCC became
+large.
+
+The best overall configuration in this repository is:
+
+\begin{itemize}
+\item ICC 2021.3.0 fast-equivalent for 2048 and 4096
+\item ICC 2021.3.0 O3 for 1024
+\end{itemize}
+
+The main reasons are:
+
+\begin{itemize}
+\item successful autovectorization of the row-based hot loops
+\item aggressive but still stable floating-point and aliasing optimizations in the ICC fast-equivalent path
+\item stronger MKL performance for the reference solver
+\end{itemize}
+
+The code is still fundamentally limited by the algorithm's memory behavior:
+column-like pivot search and strided back substitution remain difficult for
+caches and SIMD. That is why profiling points to memory pressure rather than
+control-flow overhead as the main scaling problem.
+
+If more time were available, the next experiments we would prioritize are:
+
+\begin{itemize}
+\item running the same campaign on a true \texttt{icx 2024.2.1} installation
+\item benchmarking the \texttt{dgesv\_autovec.c} helper-based variant under Intel compilers
+\item testing aligned allocation and explicit SIMD hints on the pivot and back-substitution kernels
+\end{itemize}
+
+\end{document}

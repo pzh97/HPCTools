@@ -1,16 +1,16 @@
 # -----------------------------
 # Compiler and flags
 # -----------------------------
-CC = gcc
+CC ?= gcc
 
 # Common flags
-CFLAGS = -O3 -fopenmp -ftree-vectorize -march=native -funroll-loops
+CFLAGS ?= -O3 -fopenmp -ftree-vectorize -march=native -funroll-loops
 
 # Vectorization report flags
-VECFLAGS = -fopt-info-vec-optimized=vec.txt -fopt-info-vec-missed=missed.txt -fverbose-asm -ftree-vectorize -O3 -march=native
+VECFLAGS ?= -fopt-info-vec-optimized=vec.txt -fopt-info-vec-missed=missed.txt -fverbose-asm -ftree-vectorize -O3 -march=native
 
 # Libraries
-LDLIBS = -lopenblas -lm
+LDLIBS ?= -lopenblas -lm
 
 # Source files
 SRC = dgesv.c timer.c main.c
