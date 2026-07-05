@@ -1,5 +1,5 @@
-#include <lapacke.h>
-//#include <openblas/lapacke.h>
+//#include <lapacke.h>
+#include <openblas/lapacke.h>
 //#include <mkl_lapacke.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -34,9 +34,11 @@ double *duplicate_matrix(double *orig, unsigned int size)
 
 int is_nearly_equal(double x, double y)
 {
-  const double epsilon = 1e-5 /* some small number */;
-  return fabs(x - y) <= epsilon * fabs(x);
-  // see Knuth section 4.2.2 pages 217-218
+  const double rel_tol = 1e-5;
+  const double abs_tol = 1e-8;
+  double scale = fmax(fabs(x), fabs(y));
+
+  return fabs(x - y) <= abs_tol + rel_tol * scale;
 }
 
 unsigned int check_result(double *bref, double *b, unsigned int size)

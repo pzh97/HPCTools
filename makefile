@@ -1,21 +1,65 @@
-#My device is a Macbook Air
+# -----------------------------
+# Compiler and flags
+# -----------------------------
 CC = gcc
 
-OPENBLAS_PATH = /opt/homebrew/Cellar/openblas/0.3.30
-LIBOMP_PATH = /opt/homebrew/opt/libomp
+# Common flags
+CFLAGS = -O3 -fopenmp -ftree-vectorize -march=native -funroll-loops
 
-CPPFLAGS = -I$(OPENBLAS_PATH)/include -I$(LIBOMP_PATH)/include
-LDFLAGS  = -L$(LIBOMP_PATH)/lib
-LDLIBS   = $(OPENBLAS_PATH)/lib/libopenblas.a -lomp
+# Vectorization report flags
+VECFLAGS = -fopt-info-vec-optimized=vec.txt -fopt-info-vec-missed=missed.txt -fverbose-asm -ftree-vectorize -O3 -march=native
 
+# Libraries
+LDLIBS = -lopenblas -lm
+
+# Source files
+SRC = dgesv.c timer.c main.c
 OBJ = dgesv.o timer.o main.o
-TARGET = dgesv
 
-$(TARGET): $(OBJ)
-	$(CC) $(LDFLAGS) -o $@ $^ $(LDLIBS)
+# -----------------------------
+# Targets
+# -----------------------------
 
-%.o: %.c
-	$(CC) $(CPPFLAGS) -c $< -o $@
+# Default: build vectorized version
+all: dgesv_vec
 
+# -----------------------------
+# Vectorized version
+# -----------------------------
+dgesv_vec: $(OBJ)
+	$(CC) $(OBJ) -o $@ $(LDLIBS)
+
+# Compile object files with vectorization report
+dgesv.o: dgesv.c
+	$(CC) $(CFLAGS) $(VECFLAGS) -c $< -o $@
+
+timer.o: timer.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+main.o: main.c
+	$(CC) $(CFLAGS) -c $< -o $@
+
+# -----------------------------
+# Non-vectorized version
+# -----------------------------
+dgesv_novec: CFLAGS_NO_VEC = -O3 -fopenmp -march=native -funroll-loops
+dgesv_novec: clean_obj
+	$(CC) $(CFLAGS_NO_VEC) dgesv.c timer.c main.c -o $@ $(LDLIBS)
+
+# -----------------------------
+# Clean
+# -----------------------------
 clean:
-	rm -f $(TARGET) $(OBJ)
+	$(RM) *.o dgesv_vec dgesv_novec *~ vec.txt missed.txt
+	touch dgesv.c timer.c main.c  
+clean_obj:
+	$(RM) *.o
+
+# -----------------------------
+# Vectorization report only
+# -----------------------------
+vec_report: clean
+	$(MAKE) dgesv_vec
+	@echo "=== Vectorization report generated: vec.txt / missed.txt ==="
+
+.PHONY: all clean clean_obj vec_report
